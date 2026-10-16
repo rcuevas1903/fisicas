@@ -91,6 +91,52 @@
         });
       }
     });
+
+    /*
+      COMPONENTE "jugador-fisico"
+      Mueve al jugador con WASD usando FÍSICA (velocidad), no teletransportando.
+      Así choca con paredes (static-body) y empuja cajas (dynamic-body).
+    */
+    AFRAME.registerComponent('jugador-fisico', {
+      schema: {
+        velocidad: { type: 'number', default: 4 }   // m/s
+      },
+
+      init: function () {
+        this.teclas = {};
+        window.addEventListener('keydown', (e) => this.teclas[e.code] = true);
+        window.addEventListener('keyup',   (e) => this.teclas[e.code] = false);
+
+        this.camara = this.el.querySelector('[camera]');
+
+        // Que el cuerpo no ruede como pelota
+        this.el.addEventListener('body-loaded', () => {
+          this.el.body.fixedRotation = true;
+          this.el.body.updateMassProperties();
+        });
+      },
+
+      tick: function () {
+        const body = this.el.body;
+        if (!body) return;
+
+        let x = 0, z = 0;
+        if (this.teclas.KeyW) z -= 1;
+        if (this.teclas.KeyS) z += 1;
+        if (this.teclas.KeyA) x -= 1;
+        if (this.teclas.KeyD) x += 1;
+
+        // Girar la dirección según hacia dónde mira la cámara
+        const yaw = this.camara.object3D.rotation.y;
+        const v = new THREE.Vector3(x, 0, z).normalize()
+          .multiplyScalar(this.data.velocidad)
+          .applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
+
+        body.wakeUp();
+        body.velocity.x = v.x;
+        body.velocity.z = v.z;   // la Y la sigue controlando la gravedad
+      }
+    });
   </script>
 </head>
 
@@ -127,17 +173,23 @@
 
     <!-- Caída libre: dos esferas de distinta masa, misma altura.
          ¿Cuál llega primero? (Galileo dice: las dos al mismo tiempo) -->
-    <a-sphere dynamic-body="mass: 1"  position="0 6 -6" radius="0.25" color="#EF2D5E"></a-sphere>
-    <a-sphere dynamic-body="mass: 20" position="1 6 -6" radius="0.25" color="#5E35B1"></a-sphere>
+    <a-sphere dynamic-body="mass: 1"  position="0 20 -6" radius="0.25" color="#EF2D5E"></a-sphere>
+    <a-sphere dynamic-body="mass: 20" position="1 20 -6" radius="0.25" color="#5E35B1"></a-sphere>
 
     <!-- Instrucciones -->
     <a-text value="ESPACIO / gatillo: lanzar pelota    R: reiniciar    WASD: moverse"
             position="-3 3.2 -6" color="#222" width="7"></a-text>
 
-    <!-- JUGADOR -->
-    <a-entity id="rig" position="0 0 3">
-      <!-- Cámara: en la compu lanza con ESPACIO -->
-      <a-entity camera look-controls wasd-controls position="0 1.6 0"
+    <!-- PARED: estática, el jugador no la puede atravesar -->
+    <a-box static-body position="-2 1 0" width="0.2" height="2" depth="4" color="#999"></a-box>
+
+    <!-- JUGADOR: cuerpo físico (esfera invisible de 0.4 m en los pies).
+         Masa 60 kg → empuja fácil las cajas de 1 kg. -->
+    <a-entity id="rig" position="0 0.4 3"
+              dynamic-body="mass: 60; shape: sphere; sphereRadius: 0.4"
+              jugador-fisico="velocidad: 4">
+      <!-- Cámara SIN wasd-controls (si no, atraviesa todo). En la compu lanza con ESPACIO -->
+      <a-entity camera look-controls position="0 1.2 0"
                 lanzador="velocidad: 10; masa: 1"></a-entity>
 
       <!-- Controles del Quest: lanzan con el gatillo -->
