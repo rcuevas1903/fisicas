@@ -24,7 +24,7 @@
       >>> PARA AJUSTAR LA VELOCIDAD DE LANZAMIENTO <<<
       Cambia el valor "velocidad" en los atributos lanzador="..." de las
       3 entidades al final del archivo (cámara, control derecho y control
-      izquierdo). Actualmente es 20 m/s. (El "default: 8" de abajo solo se
+      izquierdo). Actualmente es 35 m/s. (El "default: 8" de abajo solo se
       usa si una entidad no especifica velocidad.)
     */
     AFRAME.registerComponent('lanzador', {
@@ -76,7 +76,7 @@
         pelota.setAttribute('radius', 0.15);
         pelota.setAttribute('color', '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0'));
         pelota.setAttribute('position', inicio);
-        pelota.setAttribute('dynamic-body', `mass: ${this.data.masa}; shape: sphere; sphereRadius: 0.15`);
+        pelota.setAttribute('dynamic-body', `mass: ${this.data.masa}; shape: sphere; sphereRadius: 0.15; linearDamping: 0`);   // sin freno del aire: llegan (y ruedan) más lejos
 
         // Cuando el cuerpo físico ya existe, le damos velocidad inicial (v = dir * rapidez)
         pelota.addEventListener('body-loaded', () => {
@@ -112,10 +112,12 @@
       COMPONENTE "jugador-fisico"
       Mueve al jugador con WASD usando FÍSICA (velocidad), no teletransportando.
       Así choca con paredes (static-body) y empuja cajas (dynamic-body).
+      Mantén SHIFT IZQUIERDO para correr (velocidad "correr").
     */
     AFRAME.registerComponent('jugador-fisico', {
       schema: {
-        velocidad: { type: 'number', default: 4 }   // m/s
+        velocidad: { type: 'number', default: 4 },   // m/s caminando
+        correr:    { type: 'number', default: 8 }    // m/s con Shift izquierdo
       },
 
       init: function () {
@@ -142,10 +144,13 @@
         if (this.teclas.KeyA) x -= 1;
         if (this.teclas.KeyD) x += 1;
 
+        // Shift izquierdo = correr
+        const rapidez = this.teclas.ShiftLeft ? this.data.correr : this.data.velocidad;
+
         // Girar la dirección según hacia dónde mira la cámara
         const yaw = this.camara.object3D.rotation.y;
         const v = new THREE.Vector3(x, 0, z).normalize()
-          .multiplyScalar(this.data.velocidad)
+          .multiplyScalar(rapidez)
           .applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
 
         body.wakeUp();
@@ -237,7 +242,7 @@
       mapa coincide con el centro del mundo (0, 0). Cada fila es una franja en Z
       (arriba = norte, -Z) y cada columna una franja en X.
       OJO: las celdas libres donde ya hay objetos (rampa, aro, torre de cajas,
-      esferas de caída libre, pared original) NO deben convertirse en muro.
+      esferas de caída libre) NO deben convertirse en muro.
     */
     const MAPA_LABERINTO = [
       '###################',
@@ -365,8 +370,9 @@
     <a-light type="point" color="#00E5FF" intensity="0.5" distance="10" position="16 2.8 16"></a-light>
 
     <!-- PISO: estático, negro y ahora MÁS GRANDE (40 x 40 m, antes 20 x 20).
-         Se usa una caja delgada (más estable que un plano). -->
-    <a-box static-body position="0 -0.05 0" width="40" height="0.1" depth="40" color="#000000"></a-box>
+         Caja de 1 m de grosor (su cara superior sigue en y = 0): así las pelotas rápidas
+         no atraviesan el piso. -->
+    <a-box static-body position="0 -0.5 0" width="40" height="1" depth="40" color="#000000"></a-box>
 
     <!-- Decoración del piso (SIN física): cuadrícula sutil -->
     <a-entity cuadricula-neon="tamano: 40; paso: 1; color: #00B8D4; opacidad: 0.35"></a-entity>
@@ -400,18 +406,19 @@
     <a-sphere dynamic-body="mass: 2" position="-4.5 2.5 -4" radius="0.3" color="#FFC65D"></a-sphere>
 
     <!-- ARO DE BÁSQUETBOL junto a la parte alta de la rampa.
-         Sube por la rampa, mira hacia el aro (hacia -X) y deja caer la pelota con E / botón de agarre.
-         Para mover el aro cambia su "position" (y las del tablero y el poste). -->
-    <a-entity aro-basquet="radio: 0.5; color: #FF6D00" position="-5.5 0.9 -4"></a-entity>
+         Ahora está a la altura de los ojos del jugador (aro en y = 1.6 m; antes 0.9 m).
+         Lánzale pelotas desde el suelo o sube por la rampa y suéltalas con E / botón de agarre.
+         Para cambiar la altura ajusta la "y" del aro, tablero, poste, soporte y red (van juntos). -->
+    <a-entity aro-basquet="radio: 0.5; color: #FF6D00" position="-5.5 1.6 -4"></a-entity>
     <!-- Tablero (estático, semitransparente) -->
-    <a-box static-body position="-6.2 1.2 -4" width="0.1" height="0.8" depth="1.2"
+    <a-box static-body position="-6.2 1.9 -4" width="0.1" height="0.8" depth="1.2"
            material="color: #BFEFFF; opacity: 0.35; transparent: true"></a-box>
     <!-- Poste (estático) -->
-    <a-cylinder static-body position="-6.32 0.9 -4" radius="0.07" height="1.8" color="#37474F"></a-cylinder>
+    <a-cylinder static-body position="-6.32 1.2 -4" radius="0.07" height="2.4" color="#37474F"></a-cylinder>
     <!-- Soporte del aro (decorativo, sin física) -->
-    <a-box position="-6.07 0.9 -4" width="0.16" height="0.05" depth="0.05" material="shader: flat; color: #FF6D00"></a-box>
+    <a-box position="-6.07 1.6 -4" width="0.16" height="0.05" depth="0.05" material="shader: flat; color: #FF6D00"></a-box>
     <!-- Red (decorativa, sin física) -->
-    <a-cylinder position="-5.5 0.7 -4" radius-top="0.5" radius-bottom="0.28" height="0.4"
+    <a-cylinder position="-5.5 1.4 -4" radius-top="0.5" radius-bottom="0.28" height="0.4"
                 open-ended="true" segments-radial="12" segments-height="3"
                 material="shader: flat; wireframe: true; color: #FFFFFF; opacity: 0.6; transparent: true"></a-cylinder>
 
@@ -427,28 +434,25 @@
     <a-sphere dynamic-body="mass: 1"  position="0 20 -6" radius="0.25" color="#EF2D5E"></a-sphere>
     <a-sphere dynamic-body="mass: 20" position="1 20 -6" radius="0.25" color="#5E35B1"></a-sphere>
 
-    <!-- Instrucciones: pegadas al muro frente al punto de inicio (el original quedaría dentro del laberinto) -->
-    <a-text value="ESPACIO / gatillo: lanzar pelota&#10;E / agarre: soltar pelota&#10;R: reiniciar    WASD: moverse&#10;META: sube la rampa y encesta"
+    <!-- Instrucciones: pegadas al muro frente al punto de inicio -->
+    <a-text value="ESPACIO / gatillo: lanzar pelota&#10;E / agarre: soltar pelota&#10;WASD: moverse    SHIFT izq: correr&#10;R: reiniciar&#10;META: sube la rampa y encesta"
             position="16 1.9 14.95" align="center" color="#8EF3FF" width="3"></a-text>
-
-    <!-- PARED: estática, el jugador no la puede atravesar -->
-    <a-box static-body position="-2 1 0" width="0.2" height="2" depth="4" color="#999"></a-box>
 
     <!-- JUGADOR: cuerpo físico (esfera invisible de 0.4 m en los pies).
          Masa 60 kg → empuja fácil las cajas de 1 kg. -->
     <!-- Posición de inicio: esquina sureste del laberinto (antes: 0 0.4 3). Cámbiala aquí si lo necesitas. -->
     <a-entity id="rig" position="16 0.4 16"
               dynamic-body="mass: 60; shape: sphere; sphereRadius: 0.4"
-              jugador-fisico="velocidad: 4">
+              jugador-fisico="velocidad: 4; correr: 8">
       <!-- Cámara SIN wasd-controls (si no, atraviesa todo). En la compu lanza con ESPACIO -->
       <!-- VELOCIDAD DE LANZAMIENTO (cámara): ajusta "velocidad" aquí (m/s) -->
       <a-entity camera look-controls position="0 1.2 0"
-                lanzador="velocidad: 90; masa: 1"></a-entity>
+                lanzador="velocidad: 35; masa: 1"></a-entity>
 
       <!-- Controles del Quest: lanzan con el gatillo -->
       <!-- VELOCIDAD DE LANZAMIENTO (control derecho e izquierdo): ajusta "velocidad" aquí (m/s) -->
-      <a-entity laser-controls="hand: right" lanzador="velocidad: 20"></a-entity>
-      <a-entity laser-controls="hand: left"  lanzador="velocidad: 20"></a-entity>
+      <a-entity laser-controls="hand: right" lanzador="velocidad: 35"></a-entity>
+      <a-entity laser-controls="hand: left"  lanzador="velocidad: 35"></a-entity>
     </a-entity>
 
   </a-scene>
