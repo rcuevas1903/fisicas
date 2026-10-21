@@ -229,6 +229,110 @@
         }
       }
     });
+
+    /*
+      MAPA DEL LABERINTO (editable)
+      '#' = muro      '.' = pasillo libre      'S' = inicio      'M' = meta (rampa y aro)
+      Cada celda mide 2 m x 2 m (parámetro "celda" del componente) y el centro del
+      mapa coincide con el centro del mundo (0, 0). Cada fila es una franja en Z
+      (arriba = norte, -Z) y cada columna una franja en X.
+      OJO: las celdas libres donde ya hay objetos (rampa, aro, torre de cajas,
+      esferas de caída libre, pared original) NO deben convertirse en muro.
+    */
+    const MAPA_LABERINTO = [
+      '###################',
+      '#...#...#.#.......#',
+      '#.#.#.#.#.#.#####.#',
+      '#.#...#...#.#...#.#',
+      '#.#####.###.#.#.#.#',
+      '#.....#.###.#.#.#.#',
+      '#.#######...#.#.#.#',
+      '#...##M.....#.#.#.#',
+      '#.#############.#.#',
+      '#.....#...........#',
+      '#####.#...#########',
+      '#.........#.......#',
+      '#.#########.#######',
+      '#.................#',
+      '#################.#',
+      '#.................#',
+      '#.#################',
+      '#................S#',
+      '###################'
+    ];
+
+    /*
+      COMPONENTE "laberinto"
+      Convierte el mapa de arriba en muros con colisión (static-body).
+      Junta las celdas contiguas en bloques grandes para usar pocos cuerpos físicos.
+      Las franjas luminosas (arriba y abajo de cada muro) son SOLO decorativas:
+      no tienen física y no estorban al jugador ni a las pelotas.
+    */
+    AFRAME.registerComponent('laberinto', {
+      schema: {
+        celda: { type: 'number', default: 2 },           // lado de cada celda (m)
+        alto:  { type: 'number', default: 3 },           // altura de los muros (m)
+        color: { type: 'color',  default: '#2B3F6B' }
+      },
+
+      init: function () {
+        const mapa = MAPA_LABERINTO;
+        const filas = mapa.length, cols = mapa[0].length;
+        const esMuro = (i, j) => mapa[j][i] === '#';
+        const usada = mapa.map(f => Array(f.length).fill(false));
+
+        for (let j = 0; j < filas; j++) {
+          for (let i = 0; i < cols; i++) {
+            if (!esMuro(i, j) || usada[j][i]) continue;
+
+            // Extender a la derecha mientras haya muro
+            let i1 = i;
+            while (i1 + 1 < cols && esMuro(i1 + 1, j) && !usada[j][i1 + 1]) i1++;
+
+            // Extender hacia abajo mientras TODA la franja sea muro
+            let j1 = j, sigue = true;
+            while (sigue && j1 + 1 < filas) {
+              for (let k = i; k <= i1; k++) {
+                if (!esMuro(k, j1 + 1) || usada[j1 + 1][k]) { sigue = false; break; }
+              }
+              if (sigue) j1++;
+            }
+
+            for (let b = j; b <= j1; b++) for (let a = i; a <= i1; a++) usada[b][a] = true;
+            this.crearMuro(i, i1, j, j1, cols, filas);
+          }
+        }
+      },
+
+      crearMuro: function (i0, i1, j0, j1, cols, filas) {
+        const d = this.data, c = d.celda, escena = this.el.sceneEl;
+        const ancho = (i1 - i0 + 1) * c;
+        const prof  = (j1 - j0 + 1) * c;
+        const x = ((i0 + i1) / 2 - (cols  - 1) / 2) * c;
+        const z = ((j0 + j1) / 2 - (filas - 1) / 2) * c;
+
+        // Muro con física
+        const muro = document.createElement('a-box');
+        muro.setAttribute('width', ancho);
+        muro.setAttribute('height', d.alto);
+        muro.setAttribute('depth', prof);
+        muro.setAttribute('position', { x: x, y: d.alto / 2, z: z });
+        muro.setAttribute('color', d.color);
+        muro.setAttribute('static-body', '');
+        escena.appendChild(muro);
+
+        // Franjas luminosas decorativas (sin física): arriba en cian, abajo en azul
+        [[d.alto - 0.1, '#00E5FF'], [0.1, '#2979FF']].forEach(([y, col]) => {
+          const franja = document.createElement('a-box');
+          franja.setAttribute('width', ancho + 0.04);
+          franja.setAttribute('height', 0.08);
+          franja.setAttribute('depth', prof + 0.04);
+          franja.setAttribute('position', { x: x, y: y, z: z });
+          franja.setAttribute('material', 'shader: flat; color: ' + col);
+          escena.appendChild(franja);
+        });
+      }
+    });
   </script>
 </head>
 
@@ -256,28 +360,38 @@
     <a-light type="directional" color="#CFE8FF" intensity="0.9" position="2 4 2"></a-light>
     <a-light type="point" color="#00E5FF" intensity="0.6" distance="25" position="-6 4 -6"></a-light>
     <a-light type="point" color="#2979FF" intensity="0.6" distance="25" position="6 4 -2"></a-light>
+    <!-- Luz naranja sobre el aro (marca la meta) y luz cian en el punto de inicio -->
+    <a-light type="point" color="#FF6D00" intensity="0.8" distance="9" position="-5.5 2.8 -4"></a-light>
+    <a-light type="point" color="#00E5FF" intensity="0.5" distance="10" position="16 2.8 16"></a-light>
 
-    <!-- PISO: estático, ahora negro. Se usa una caja delgada (más estable que un plano). -->
-    <a-box static-body position="0 -0.05 0" width="20" height="0.1" depth="20" color="#000000"></a-box>
+    <!-- PISO: estático, negro y ahora MÁS GRANDE (40 x 40 m, antes 20 x 20).
+         Se usa una caja delgada (más estable que un plano). -->
+    <a-box static-body position="0 -0.05 0" width="40" height="0.1" depth="40" color="#000000"></a-box>
 
     <!-- Decoración del piso (SIN física): cuadrícula sutil -->
-    <a-entity cuadricula-neon="tamano: 20; paso: 1; color: #00B8D4; opacidad: 0.35"></a-entity>
+    <a-entity cuadricula-neon="tamano: 40; paso: 1; color: #00B8D4; opacidad: 0.35"></a-entity>
 
     <!-- Decoración del piso (SIN física): líneas luminosas en el borde y ejes centrales.
          Son muy delgadas (2 cm) y no tienen static-body ni dynamic-body. -->
-    <a-box position="0 0.01 -9.95" width="20" height="0.02" depth="0.1" material="shader: flat; color: #00E5FF"></a-box>
-    <a-box position="0 0.01  9.95" width="20" height="0.02" depth="0.1" material="shader: flat; color: #00E5FF"></a-box>
-    <a-box position="-9.95 0.01 0" width="0.1" height="0.02" depth="20" material="shader: flat; color: #2979FF"></a-box>
-    <a-box position=" 9.95 0.01 0" width="0.1" height="0.02" depth="20" material="shader: flat; color: #2979FF"></a-box>
-    <a-box position="0 0.01 0" width="0.06" height="0.02" depth="20" material="shader: flat; color: #00E5FF; opacity: 0.5; transparent: true"></a-box>
-    <a-box position="0 0.01 0" width="20" height="0.02" depth="0.06" material="shader: flat; color: #2979FF; opacity: 0.5; transparent: true"></a-box>
+    <a-box position="0 0.01 -19.95" width="40" height="0.02" depth="0.1" material="shader: flat; color: #00E5FF"></a-box>
+    <a-box position="0 0.01  19.95" width="40" height="0.02" depth="0.1" material="shader: flat; color: #00E5FF"></a-box>
+    <a-box position="-19.95 0.01 0" width="0.1" height="0.02" depth="40" material="shader: flat; color: #2979FF"></a-box>
+    <a-box position=" 19.95 0.01 0" width="0.1" height="0.02" depth="40" material="shader: flat; color: #2979FF"></a-box>
+    <a-box position="0 0.01 0" width="0.06" height="0.02" depth="40" material="shader: flat; color: #00E5FF; opacity: 0.5; transparent: true"></a-box>
+    <a-box position="0 0.01 0" width="40" height="0.02" depth="0.06" material="shader: flat; color: #2979FF; opacity: 0.5; transparent: true"></a-box>
 
     <!-- Decoración lejana (SIN física, fuera del piso): torres de alambre luminosas -->
-    <a-box position="-14 4 -12"  width="2" height="8"  depth="2" material="shader: flat; wireframe: true; color: #00E5FF"></a-box>
-    <a-box position="14 6 -14"   width="2.5" height="12" depth="2.5" material="shader: flat; wireframe: true; color: #2979FF"></a-box>
-    <a-box position="-15 3 6"    width="2" height="6"  depth="2" material="shader: flat; wireframe: true; color: #2979FF"></a-box>
-    <a-box position="15 5 8"     width="2" height="10" depth="2" material="shader: flat; wireframe: true; color: #00E5FF"></a-box>
-    <a-box position="0 7 -18"    width="3" height="14" depth="3" material="shader: flat; wireframe: true; color: #00B8D4"></a-box>
+    <a-box position="-26 4 -24"  width="2" height="8"  depth="2" material="shader: flat; wireframe: true; color: #00E5FF"></a-box>
+    <a-box position="26 6 -26"   width="2.5" height="12" depth="2.5" material="shader: flat; wireframe: true; color: #2979FF"></a-box>
+    <a-box position="-27 3 12"   width="2" height="6"  depth="2" material="shader: flat; wireframe: true; color: #2979FF"></a-box>
+    <a-box position="27 5 16"    width="2" height="10" depth="2" material="shader: flat; wireframe: true; color: #00E5FF"></a-box>
+    <a-box position="0 7 -32"    width="3" height="14" depth="3" material="shader: flat; wireframe: true; color: #00B8D4"></a-box>
+    <a-box position="-31 5 -4"   width="2" height="10" depth="2" material="shader: flat; wireframe: true; color: #00B8D4"></a-box>
+    <a-box position="31 4 0"     width="2" height="8"  depth="2" material="shader: flat; wireframe: true; color: #2979FF"></a-box>
+
+    <!-- LABERINTO: muros con física generados a partir de MAPA_LABERINTO (en el <script>).
+         Entrada en la esquina sureste; la meta (rampa + aro) está cerca del centro. -->
+    <a-entity laberinto="celda: 2; alto: 3; color: #2B3F6B"></a-entity>
 
     <!-- RAMPA: estática e inclinada 20° -->
     <a-box static-body position="-3 0.6 -4" rotation="0 0 -20" width="4" height="0.1" depth="1.5" color="#8D6E63"></a-box>
@@ -313,22 +427,23 @@
     <a-sphere dynamic-body="mass: 1"  position="0 20 -6" radius="0.25" color="#EF2D5E"></a-sphere>
     <a-sphere dynamic-body="mass: 20" position="1 20 -6" radius="0.25" color="#5E35B1"></a-sphere>
 
-    <!-- Instrucciones (color claro para que se lean sobre el fondo oscuro) -->
-    <a-text value="ESPACIO / gatillo: lanzar pelota    E / agarre: soltar pelota&#10;R: reiniciar    WASD: moverse"
-            position="-3 3.2 -6" color="#8EF3FF" width="7"></a-text>
+    <!-- Instrucciones: pegadas al muro frente al punto de inicio (el original quedaría dentro del laberinto) -->
+    <a-text value="ESPACIO / gatillo: lanzar pelota&#10;E / agarre: soltar pelota&#10;R: reiniciar    WASD: moverse&#10;META: sube la rampa y encesta"
+            position="16 1.9 14.95" align="center" color="#8EF3FF" width="3"></a-text>
 
     <!-- PARED: estática, el jugador no la puede atravesar -->
     <a-box static-body position="-2 1 0" width="0.2" height="2" depth="4" color="#999"></a-box>
 
     <!-- JUGADOR: cuerpo físico (esfera invisible de 0.4 m en los pies).
          Masa 60 kg → empuja fácil las cajas de 1 kg. -->
-    <a-entity id="rig" position="0 0.4 3"
+    <!-- Posición de inicio: esquina sureste del laberinto (antes: 0 0.4 3). Cámbiala aquí si lo necesitas. -->
+    <a-entity id="rig" position="16 0.4 16"
               dynamic-body="mass: 60; shape: sphere; sphereRadius: 0.4"
               jugador-fisico="velocidad: 4">
       <!-- Cámara SIN wasd-controls (si no, atraviesa todo). En la compu lanza con ESPACIO -->
       <!-- VELOCIDAD DE LANZAMIENTO (cámara): ajusta "velocidad" aquí (m/s) -->
       <a-entity camera look-controls position="0 1.2 0"
-                lanzador="velocidad: 20; masa: 1"></a-entity>
+                lanzador="velocidad: 90; masa: 1"></a-entity>
 
       <!-- Controles del Quest: lanzan con el gatillo -->
       <!-- VELOCIDAD DE LANZAMIENTO (control derecho e izquierdo): ajusta "velocidad" aquí (m/s) -->
